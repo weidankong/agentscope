@@ -22,6 +22,7 @@ from ._multi_modality import (
     openai_image_to_text,
     openai_audio_to_text,
 )
+from ._weather import get_weather
 from ._toolkit import Toolkit
 
 __all__ = [
@@ -41,4 +42,5 @@ __all__ = [
     "openai_create_image_variation",
     "openai_image_to_text",
     "openai_audio_to_text",
+    "get_weather",
 ]
