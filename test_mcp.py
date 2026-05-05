@@ -5,22 +5,9 @@ from agentscope.agent import ReActAgent, UserAgent
 from agentscope.model import DashScopeChatModel
 from agentscope.formatter import DashScopeChatFormatter
 from agentscope.memory import InMemoryMemory
-from agentscope.tool import Toolkit, ToolResponse
-from agentscope.message import TextBlock
+from agentscope.tool import Toolkit
+from agentscope.mcp import HttpStatelessClient
 from agentscope_runtime.sandbox import McpSandboxAsync
-
-
-def _make_sandbox_proxy(sandbox: McpSandboxAsync, tool_name: str):
-    """Create a proxy function that calls sandbox.call_tool_async."""
-    async def proxy(**kwargs):
-        result = await sandbox.call_tool_async(tool_name, kwargs)
-        texts = []
-        for block in result.get("content", []):
-            if block.get("type") == "text":
-                texts.append(TextBlock(type="text", text=block["text"]))
-        return ToolResponse(content=texts)
-
-    return proxy
 
 
 # ---------------------------------------------------------------------------
@@ -28,24 +15,39 @@ def _make_sandbox_proxy(sandbox: McpSandboxAsync, tool_name: str):
 # ---------------------------------------------------------------------------
 
 async def main():
-    # 2. Start sandbox
+    # 1. Start sandbox (launches Docker container with MCP server)
     sandbox = McpSandboxAsync()
     await sandbox.__aenter__()
 
-    try:
-        toolkit = Toolkit()
-        mcps = await sandbox.list_mcps_async()
-        for server_name, tools in mcps.items():
-            for tool_name, tool_info in tools.items():
-                schema = tool_info["json_schema"]
-                proxy = _make_sandbox_proxy(sandbox, tool_name)
-                toolkit.register_tool_function(
-                    proxy,
-                    func_name=tool_name,
-                    json_schema=schema,
-                    async_execution=False,
-                )
+    toolkit = Toolkit()
 
+    # Create a tool group for MCP tools from sandbox
+    toolkit.create_tool_group(
+        group_name="sandbox_tools",
+        description="Tools from MCP sandbox.",
+    )
+
+    # 2. Connect to the sandbox MCP server via streamable_http
+    # Note: sandbox.get_info()['url'] gives the host-mapped URL (dynamic port)
+    sandbox_url = "http://localhost:49152"
+    print(sandbox_url)
+
+    sandbox_client = HttpStatelessClient(
+        name="mcp-sandbox",
+        transport="streamable_http",
+        url=f"{sandbox_url}/mcp",
+    )
+    print(sandbox_client)
+
+    # list_tools 返回 List[mcp.types.Tool]
+    tools = await sandbox_client.list_tools()
+    print(sandbox_client)
+    await toolkit.register_mcp_client(
+        sandbox_client,
+        group_name="sandbox_tools",
+    )
+
+    try:
         agent = ReActAgent(
             name="Friday",
             sys_prompt="You're a helpful assistant named Friday.",
@@ -69,5 +71,6 @@ async def main():
                 break
     finally:
         await sandbox.__aexit__(None, None, None)
+
 
 asyncio.run(main())
