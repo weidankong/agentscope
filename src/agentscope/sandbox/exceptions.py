@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Errors for the sandbox layer."""
 
 
@@ -24,4 +23,4 @@ class CapabilityError(SandboxError):
 
 
 class UnsupportedOperation(SandboxError):
-    """Raised when this backend does not implement an optional operation."""
+    """Raised when an operation is not implemented for this backend (e.g. resume)."""

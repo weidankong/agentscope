@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
 """Docker backend: runs commands inside a Docker container.
 
 Provides real process isolation via Docker. Requires the Docker daemon to
-be running and the ``docker`` package (docker-py) to be installed::
-
-    pip install agentscope[sandbox]
+be running and the ``docker`` package (docker-py) to be installed.
 
 All blocking docker-py calls are dispatched to a shared
 :class:`~concurrent.futures.ThreadPoolExecutor` so they never block the
 event loop.
 """
+
+from __future__ import annotations
 
 import asyncio
 import io
@@ -20,6 +19,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import docker as docker_sdk
+import docker.errors
+from docker.models.containers import Container
+
 from .connection import SandboxConnection, register_connection_class
 from .exceptions import UnsupportedOperation
 from .types import (
@@ -28,23 +31,6 @@ from .types import (
     SandboxCreateOptions,
     SerializedSandboxState,
 )
-
-
-def _import_docker() -> tuple[Any, Any, Any]:
-    """Lazy-import ``docker`` SDK; raises ``ImportError`` with guidance."""
-    try:
-        import docker as _docker_sdk
-        import docker.errors as _docker_errors
-        from docker.models.containers import (
-            Container as _Container,
-        )
-    except ImportError as exc:
-        raise ImportError(
-            "DockerSandboxConnection requires the `docker` "
-            "package. Install with: pip install agentscope[sandbox]",
-        ) from exc
-    return _docker_sdk, _docker_errors, _Container
-
 
 _DEFAULT_IMAGE = "ubuntu:22.04"
 _DEFAULT_WORKSPACE = "/workspace"
@@ -56,43 +42,17 @@ _DOCKER_EXECUTOR = ThreadPoolExecutor(
 
 
 class DockerSandboxConnection(SandboxConnection):
-    """Sandbox backed by a Docker container + ``docker-py``.
-
-    The ``workspace`` is the working directory *inside* the container
-    where ``exec``, ``read``, and ``write`` operate relative to.
-    It defaults to ``/workspace`` and is also the ``cwd`` for commands.
-
-    ``exposed_ports`` here is the *resolved* mapping
-    ``{container_port: host_port}`` obtained after container creation,
-    distinct from ``SandboxCreateOptions.exposed_ports`` which only
-    declares *which* ports to expose (the host ports are assigned by
-    Docker at runtime).
-    """
-
-    _supports_exposed_ports = True
-    _supports_snapshot = True
+    """Sandbox backed by a Docker container + ``docker-py``."""
 
     def __init__(
         self,
-        client: Any,
-        container: Any,
+        client: docker_sdk.DockerClient,
+        container: Container,
         *,
         instance_id: str,
         workspace: str = _DEFAULT_WORKSPACE,
         exposed_ports: dict[int, int] | None = None,
     ) -> None:
-        """Wrap an existing Docker client and running container.
-
-        Args:
-            client: ``docker.DockerClient`` instance.
-            container: ``docker.models.containers.Container`` handle.
-            instance_id: Unique id for this sandbox instance.
-            workspace: Working directory inside the container; all
-                relative ``read``/``write`` paths resolve under this.
-            exposed_ports: Resolved ``{container_port: host_port}``
-                mapping. Populated by :meth:`create` after the
-                container is started and Docker assigns host ports.
-        """
         self._client = client
         self._container = container
         self._instance_id = instance_id
@@ -106,21 +66,14 @@ class DockerSandboxConnection(SandboxConnection):
 
     @property
     def workspace_root(self) -> Path:
-        """Logical workspace root inside the container (POSIX path string)."""
         return Path(self._workspace)
 
     # ─── factory ──────────────────────────────────────────────
 
     @classmethod
-    async def create(
-        cls,
-        options: SandboxCreateOptions,
-    ) -> "DockerSandboxConnection":
+    async def create(cls, options: SandboxCreateOptions) -> DockerSandboxConnection:
         if options.backend != "docker":
-            raise ValueError(
-                f"expected backend 'docker', got {options.backend!r}",
-            )
-        docker_sdk, _, _ = _import_docker()
+            raise ValueError(f"expected backend 'docker', got {options.backend!r}")
 
         image: str = options.extra.get("image", _DEFAULT_IMAGE)
         workspace: str = options.extra.get("workspace", _DEFAULT_WORKSPACE)
@@ -129,12 +82,7 @@ class DockerSandboxConnection(SandboxConnection):
 
         client = docker_sdk.from_env()
 
-        await loop.run_in_executor(
-            _DOCKER_EXECUTOR,
-            _ensure_image,
-            client,
-            image,
-        )
+        await loop.run_in_executor(_DOCKER_EXECUTOR, _ensure_image, client, image)
 
         create_kwargs: dict[str, Any] = {
             "image": image,
@@ -163,7 +111,7 @@ class DockerSandboxConnection(SandboxConnection):
                 for port in options.exposed_ports
             }
 
-        container = await loop.run_in_executor(
+        container: Container = await loop.run_in_executor(
             _DOCKER_EXECUTOR,
             lambda: client.containers.create(**create_kwargs),
         )
@@ -198,11 +146,7 @@ class DockerSandboxConnection(SandboxConnection):
         return conn
 
     @classmethod
-    async def resume(
-        cls,
-        state: SerializedSandboxState,
-    ) -> "DockerSandboxConnection":
-        docker_sdk, docker_errors, _ = _import_docker()
+    async def resume(cls, state: SerializedSandboxState) -> DockerSandboxConnection:
         if state.backend != "docker":
             raise ValueError("backend mismatch for resume")
 
@@ -219,14 +163,14 @@ class DockerSandboxConnection(SandboxConnection):
 
         client = docker_sdk.from_env()
         try:
-            container = await loop.run_in_executor(
+            container: Container = await loop.run_in_executor(
                 _DOCKER_EXECUTOR,
                 lambda: client.containers.get(container_id),
             )
-        except docker_errors.NotFound as e:
+        except docker.errors.NotFound as e:
             client.close()
             raise UnsupportedOperation(
-                f"container {container_id} no longer exists",
+                f"container {container_id} no longer exists"
             ) from e
 
         await loop.run_in_executor(_DOCKER_EXECUTOR, container.reload)
@@ -340,18 +284,17 @@ class DockerSandboxConnection(SandboxConnection):
         if self._destroyed:
             return
         self._destroyed = True
-        _, docker_errors, _ = _import_docker()
         loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(_DOCKER_EXECUTOR, self._container.kill)
-        except docker_errors.APIError:
+        except docker.errors.APIError:
             pass
         try:
             await loop.run_in_executor(
                 _DOCKER_EXECUTOR,
                 lambda: self._container.remove(force=True),
             )
-        except docker_errors.APIError:
+        except docker.errors.APIError:
             pass
         self._client.close()
 
@@ -360,29 +303,30 @@ class DockerSandboxConnection(SandboxConnection):
         if self._destroyed:
             return
         self._destroyed = True
-        _, docker_errors, _ = _import_docker()
         loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(_DOCKER_EXECUTOR, self._container.stop)
-        except docker_errors.APIError:
+        except docker.errors.APIError:
             pass
         self._client.close()
 
     async def running(self) -> bool:
         if self._destroyed:
             return False
-        _, docker_errors, _ = _import_docker()
         loop = asyncio.get_running_loop()
         try:
-            await loop.run_in_executor(
-                _DOCKER_EXECUTOR,
-                self._container.reload,
-            )
+            await loop.run_in_executor(_DOCKER_EXECUTOR, self._container.reload)
             return self._container.status == "running"
-        except docker_errors.APIError:
+        except docker.errors.APIError:
             return False
 
     # ─── capabilities ─────────────────────────────────────────
+
+    def supports_exposed_ports(self) -> bool:
+        return True
+
+    def supports_snapshot(self) -> bool:
+        return True
 
     async def snapshot_workspace(self) -> bytes:
         """Export the workspace directory as a tar archive."""
@@ -398,15 +342,12 @@ class DockerSandboxConnection(SandboxConnection):
         """Restore the workspace directory from a tar archive."""
         loop = asyncio.get_running_loop()
 
-        rm_workspace = (
-            f"rm -rf {self._workspace}/* "
-            f"{self._workspace}/.[!.]* 2>/dev/null; true"
+        await loop.run_in_executor(
+            _DOCKER_EXECUTOR,
+            lambda: self._container.exec_run(
+                ["sh", "-c", f"rm -rf {self._workspace}/* {self._workspace}/.[!.]* 2>/dev/null; true"],
+            ),
         )
-
-        def _clear_workspace() -> None:
-            self._container.exec_run(["sh", "-c", rm_workspace])
-
-        await loop.run_in_executor(_DOCKER_EXECUTOR, _clear_workspace)
 
         def _restore() -> None:
             self._container.put_archive("/", data)
@@ -417,10 +358,7 @@ class DockerSandboxConnection(SandboxConnection):
         host_port = self._exposed_ports.get(port)
         if host_port is None:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                _DOCKER_EXECUTOR,
-                self._container.reload,
-            )
+            await loop.run_in_executor(_DOCKER_EXECUTOR, self._container.reload)
             attrs = getattr(self._container, "attrs", {}) or {}
             ports_info = attrs.get("NetworkSettings", {}).get("Ports", {})
             bindings = ports_info.get(f"{port}/tcp", [])
@@ -450,13 +388,11 @@ class DockerSandboxConnection(SandboxConnection):
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _ensure_image(client: Any, image: str) -> None:
+def _ensure_image(client: docker_sdk.DockerClient, image: str) -> None:
     """Pull the image if not present locally."""
-    _, docker_errors, _ = _import_docker()
     try:
         client.images.get(image)
-    except docker_errors.ImageNotFound:
+    except docker.errors.ImageNotFound:
         repo, _, tag = image.partition(":")
         client.images.pull(repo, tag=tag or None)
 

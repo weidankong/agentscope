@@ -1,17 +1,10 @@
-# -*- coding: utf-8 -*-
-"""Reference / development backend: host subprocess + temp directory.
+"""Reference backend: real subprocess + temp directory on the host machine.
 
-**Not an isolation boundary** — commands run directly on the host with
-full filesystem access inside the temp directory.  This backend exists
-to:
-
-1. **Exercise the full ``SandboxConnection`` API** without requiring
-   Docker or E2B, making it useful for unit tests and CI.
-2. **Serve as a minimal reference implementation** for new backend
-   authors: every abstract method is implemented in < 10 lines.
-3. **Support lightweight local workflows** (e.g. skill prototyping)
-   where container overhead is unnecessary.
+Not an isolation boundary suitable for untrusted code — only demonstrates
+the API and serves as a test backend.
 """
+
+from __future__ import annotations
 
 import asyncio
 import os
@@ -29,7 +22,7 @@ from .types import (
 
 
 class LocalTempSandboxConnection(SandboxConnection):
-    """Host temp dir backend using ``asyncio.create_subprocess_shell``."""
+    """Sandbox backed by a host temp directory + ``asyncio.create_subprocess_shell``."""
 
     def __init__(self, root: Path, *, instance_id: str) -> None:
         self._root = root.resolve()
@@ -42,20 +35,14 @@ class LocalTempSandboxConnection(SandboxConnection):
 
     @property
     def workspace_root(self) -> Path:
-        """Absolute host path of the sandbox workspace root."""
         return self._root
 
     # ─── factory ──────────────────────────────────────────────
 
     @classmethod
-    async def create(
-        cls,
-        options: SandboxCreateOptions,
-    ) -> "LocalTempSandboxConnection":
-        """Allocate a temp directory and run ``startup_commands``."""
+    async def create(cls, options: SandboxCreateOptions) -> LocalTempSandboxConnection:
         if options.backend != "local_temp":
-            msg = f"expected backend 'local_temp', got {options.backend!r}"
-            raise ValueError(msg)
+            raise ValueError(f"expected backend 'local_temp', got {options.backend!r}")
         base = Path(options.extra.get("base_dir", "/tmp"))
         base.mkdir(parents=True, exist_ok=True)
         prefix = options.extra.get("prefix", "ws")
@@ -67,10 +54,7 @@ class LocalTempSandboxConnection(SandboxConnection):
         return conn
 
     @classmethod
-    async def resume(
-        cls,
-        state: SerializedSandboxState,
-    ) -> "LocalTempSandboxConnection":
+    async def resume(cls, state: SerializedSandboxState) -> LocalTempSandboxConnection:
         if state.backend != "local_temp":
             raise ValueError("backend mismatch for resume")
         root_s = state.payload.get("root")
@@ -78,9 +62,7 @@ class LocalTempSandboxConnection(SandboxConnection):
             raise ValueError("invalid resume payload: missing root")
         root = Path(root_s)
         if not root.exists():
-            raise UnsupportedOperation(
-                f"workspace root no longer exists: {root}",
-            )
+            raise UnsupportedOperation(f"workspace root no longer exists: {root}")
         iid = state.payload.get("instance_id")
         if not isinstance(iid, str):
             iid = uuid.uuid4().hex
@@ -89,7 +71,7 @@ class LocalTempSandboxConnection(SandboxConnection):
     # ─── path resolution ─────────────────────────────────────
 
     def _resolve(self, path: str) -> Path:
-        """Resolve a sandbox-relative path under the workspace root."""
+        """Resolve a sandbox-relative path, ensuring it doesn't escape the root."""
         rel = Path(path)
         if rel.is_absolute():
             rel = Path(*rel.parts[1:]) if rel.parts[0] == "/" else rel
@@ -123,20 +105,13 @@ class LocalTempSandboxConnection(SandboxConnection):
             if timeout is None:
                 out_b, err_b = await proc.communicate()
             else:
-                out_b, err_b = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=timeout,
-                )
+                out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
             raise
         code = proc.returncode if proc.returncode is not None else -1
-        return ExecResult(
-            exit_code=code,
-            stdout=out_b or b"",
-            stderr=err_b or b"",
-        )
+        return ExecResult(exit_code=code, stdout=out_b or b"", stderr=err_b or b"")
 
     # ─── filesystem ───────────────────────────────────────────
 
@@ -158,7 +133,7 @@ class LocalTempSandboxConnection(SandboxConnection):
             shutil.rmtree(self._root, ignore_errors=True)
 
     async def close(self) -> None:
-        """Soft close: mark closed without deleting the workspace."""
+        """Soft close: mark as closed but don't delete workspace (for pool reuse)."""
         self._destroyed = True
 
     async def running(self) -> bool:
@@ -169,10 +144,7 @@ class LocalTempSandboxConnection(SandboxConnection):
     async def export_state(self) -> SerializedSandboxState:
         return SerializedSandboxState(
             backend=self.backend_id,
-            payload={
-                "root": str(self._root),
-                "instance_id": self._instance_id,
-            },
+            payload={"root": str(self._root), "instance_id": self._instance_id},
         )
 
 
