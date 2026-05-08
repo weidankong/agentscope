@@ -17,7 +17,7 @@ from typing import Any
 
 import mcp.types as mtypes
 
-from ..mcp import StdIOStatefulClient
+from ..mcp import StdIOStatefulClient, HttpStatefulClient, StatefulClientBase
 from .._logging import logger
 from .config import McpGatewayConfig, McpServerConfig
 
@@ -69,15 +69,22 @@ class MCPGateway:
         if self._started:
             return
 
-        raw: list[tuple[str, StdIOStatefulClient, list[mtypes.Tool]]] = []
+        raw: list[tuple[str, StatefulClientBase, list[mtypes.Tool]]] = []
         for cfg in mcp_configs:
-            client = StdIOStatefulClient(
-                name=cfg.name,
-                command=cfg.command,
-                args=cfg.args or [],
-                env=cfg.env or None,
-                cwd=cwd,
-            )
+            if cfg.transport in ("streamable_http", "sse"):
+                client = HttpStatefulClient(
+                    name=cfg.name,
+                    transport=cfg.transport,
+                    url=cfg.url,
+                )
+            else:
+                client = StdIOStatefulClient(
+                    name=cfg.name,
+                    command=cfg.command,
+                    args=cfg.args or [],
+                    env=cfg.env or None,
+                    cwd=cwd,
+                )
             await client.connect()
             self._clients.append(client)
             tools = await client.list_tools()

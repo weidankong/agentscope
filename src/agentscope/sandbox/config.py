@@ -64,12 +64,22 @@ class LocalBackendParams(BackendParams):
 
 @dataclass(slots=True)
 class McpServerConfig:
-    """One MCP server to start inside the sandbox."""
+    """One MCP server to start inside the sandbox.
+
+    For ``transport="stdio"`` the gateway launches ``command`` locally.
+    For ``transport="streamable_http"`` or ``transport="sse"`` the gateway
+    connects to the HTTP MCP server running inside the sandbox via the
+    Docker port mapping; ``port`` is the *container* port and ``url``
+    overrides the auto-constructed URL when set.
+    """
 
     name: str
-    command: str
+    transport: str = "stdio"
+    command: str = ""
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    port: int | None = None
+    url: str | None = None
 
 
 @dataclass(slots=True)
