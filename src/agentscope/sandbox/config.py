@@ -100,4 +100,4 @@ class SandboxConfig:
     mcp_gateway: MCPGatewayConfig = field(default_factory=MCPGatewayConfig)
 
     skills: SkillsConfig | None = None
-    tools: list[ToolDefinition] = field(default_factory=list)
+    tools: list["ToolDefinition | ToolBase"] = field(default_factory=list)

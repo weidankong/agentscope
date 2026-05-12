@@ -12,8 +12,8 @@ from agentscope.sandbox import (
     Sandbox,
     SandboxConfig,
     LocalBackendParams,
-    McpServerConfig,
-    McpGatewayConfig,
+    MCPServerConfig,
+    MCPGatewayConfig,
 )
 from agentscope.tool import Read, Write
 
@@ -41,11 +41,10 @@ async def main() -> None:
     try:
         config = SandboxConfig(
             backend=LocalBackendParams(),
-            mcp_gateway=McpGatewayConfig(enabled=True),
+            mcp_gateway=MCPGatewayConfig(enabled=True),
             mcp_servers=[
-                McpServerConfig(
+                MCPServerConfig(
                     name="codebox-tools",
-                    transport="streamable_http",
                     url=f"http://127.0.0.1:{CODEBOX_PORT}/mcp",
                 ),
             ],

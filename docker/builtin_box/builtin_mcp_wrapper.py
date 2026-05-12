@@ -160,9 +160,6 @@ def _create_app() -> Starlette:
     mcp_server, _ = _build_server()
     session_manager = StreamableHTTPSessionManager(app=mcp_server)
 
-    async def handle_streamable_http(scope: Any, receive: Any, send: Any) -> None:
-        await session_manager.handle_request(scope, receive, send)
-
     @asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         async with session_manager.run():
@@ -171,7 +168,7 @@ def _create_app() -> Starlette:
     app = Starlette(
         lifespan=lifespan,
         routes=[
-            Mount("/mcp", app=handle_streamable_http),
+            Mount("/", app=session_manager.handle_request),
         ],
     )
     return app

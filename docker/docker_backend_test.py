@@ -5,11 +5,11 @@ import asyncio
 
 from agentscope.sandbox import Sandbox
 from agentscope.sandbox.config import (
-    DockerBackendParams,
-    McpGatewayConfig,
-    McpServerConfig,
+    MCPGatewayConfig,
+    MCPServerConfig,
     SandboxConfig,
 )
+from agentscope.sandbox.backend_config import DockerBackendParams
 
 MCP_CONTAINER_PORT = 8765
 MCP_HOST_PORT = 8765
@@ -22,14 +22,11 @@ async def main() -> None:
     config = SandboxConfig(
         backend=DockerBackendParams(
             image=IMAGE,
-            use_image_entrypoint=True,
-            port_map={MCP_CONTAINER_PORT: MCP_HOST_PORT},
         ),
-        mcp_gateway=McpGatewayConfig(enabled=True),
+        mcp_gateway=MCPGatewayConfig(enabled=True),
         mcp_servers=[
-            McpServerConfig(
+            MCPServerConfig(
                 name="builtin-tools",
-                transport="streamable_http",
                 url=f"http://127.0.0.1:{MCP_HOST_PORT}/mcp",
             ),
         ],

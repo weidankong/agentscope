@@ -68,7 +68,7 @@ class FileAccessor:
 
 @dataclass(slots=True)
 class _ToolEntry:
-    definition: ToolDefinition
+    definition: ToolDefinition | ToolBase
     source: str = "static"  # "static" | "mcp" | "skill"
 
 
@@ -227,7 +227,10 @@ class Sandbox(WorkspaceBase):
 
         for entry in self._tools.values():
             td = entry.definition
-            schema = dict(td.parameters) if td.parameters else {}
+            if isinstance(td, ToolBase):
+                schema = dict(td.input_schema) if td.input_schema else {}
+            else:
+                schema = dict(td.parameters) if td.parameters else {}
             if not schema or "type" not in schema:
                 schema = {"type": "object", "properties": schema}
             mcp_tool = MCPToolSchema(
@@ -703,7 +706,10 @@ class Sandbox(WorkspaceBase):
         entry: _ToolEntry,
         args: dict[str, Any],
     ) -> Any:
-        shell_cmd = entry.definition.shell_cmd
+        td = entry.definition
+        if isinstance(td, ToolBase):
+            return await td(**args)
+        shell_cmd = td.shell_cmd
         if not shell_cmd:
             raise RuntimeError(
                 f"Tool {entry.definition.name!r} has no shell_cmd configured",

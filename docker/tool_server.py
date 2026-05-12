@@ -22,8 +22,8 @@ from agentscope.sandbox import (
     Sandbox,
     SandboxConfig,
     LocalBackendParams,
-    McpServerConfig,
-    McpGatewayConfig,
+    MCPServerConfig,
+    MCPGatewayConfig,
 )
 
 BUILTIN_IMAGE = "agentscope/builtin-box:dev"
@@ -91,17 +91,16 @@ async def on_startup(app: web.Application) -> None:
 
     config = SandboxConfig(
         backend=LocalBackendParams(),
-        mcp_gateway=McpGatewayConfig(enabled=True),
+        mcp_gateway=MCPGatewayConfig(enabled=True),
         mcp_servers=[
-            McpServerConfig(
+            MCPServerConfig(
                 name="builtin-tools",
-                transport="streamable_http",
                 url=f"http://127.0.0.1:{BUILTIN_PORT}/mcp",
             ),
         ],
     )
     _sandbox = Sandbox(config)
-    await _sandbox.start()
+    await _sandbox.initialize()
     tools = await _sandbox.list_tools()
     print(f"Sandbox started, connected to builtin-box. Tools: {[t.name for t in tools]}")
 
