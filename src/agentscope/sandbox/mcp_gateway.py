@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 import mcp.types as mtypes
 
 from .._logging import logger
-from ..mcp import MCPClient, StdioMCPConfig
+from ..mcp import MCPClient, StdioMCPConfig, HttpMCPConfig
 
 if TYPE_CHECKING:
     from .config import MCPServerConfig
@@ -84,16 +84,24 @@ class MCPGateway:
 
         raw: list[tuple[str, MCPClient, list[mtypes.Tool]]] = []
         for cfg in mcp_configs:
-            client = MCPClient(
-                name=cfg.name,
-                is_stateful=True,
-                mcp_config=StdioMCPConfig(
-                    command=cfg.command,
-                    args=cfg.args or None,
-                    env=cfg.env or None,
-                    cwd=cwd,
-                ),
-            )
+            if cfg.url:
+                mcp_config = HttpMCPConfig(url=cfg.url)
+                client = MCPClient(
+                    name=cfg.name,
+                    is_stateful=True,
+                    mcp_config=mcp_config,
+                )
+            else:
+                client = MCPClient(
+                    name=cfg.name,
+                    is_stateful=True,
+                    mcp_config=StdioMCPConfig(
+                        command=cfg.command,
+                        args=cfg.args or None,
+                        env=cfg.env or None,
+                        cwd=cwd,
+                    ),
+                )
             await client.connect()
             self._clients.append(client)
             tools = await client.list_tools()

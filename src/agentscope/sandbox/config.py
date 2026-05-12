@@ -16,9 +16,10 @@ class MCPServerConfig:
     """One MCP server to start inside the sandbox."""
 
     name: str
-    command: str
+    command: str | None = None
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    url: str | None = None
 
 
 @dataclass(slots=True)

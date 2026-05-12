@@ -15,8 +15,8 @@ from agentscope.sandbox import (
     Sandbox,
     SandboxConfig,
     LocalBackendParams,
-    McpServerConfig,
-    McpGatewayConfig,
+    MCPServerConfig,
+    MCPGatewayConfig,
 )
 
 IMAGE = "agentscope/builtin-box:dev"
@@ -44,12 +44,11 @@ async def main() -> None:
         # MCP server already running inside the Docker container
         config = SandboxConfig(
             backend=LocalBackendParams(),
-            mcp_gateway=McpGatewayConfig(enabled=True),
+            mcp_gateway=MCPGatewayConfig(enabled=True),
             mcp_servers=[
-                McpServerConfig(
+                MCPServerConfig(
                     name="builtin-tools",
-                    transport="streamable_http",
-                    url=f"http://127.0.0.1:{MCP_HOST_PORT}/mcp",
+                    url=f"http://127.0.0.1:{MCP_HOST_PORT}/mcp/",
                 ),
             ],
         )
