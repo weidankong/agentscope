@@ -48,28 +48,6 @@ class ToolServer:
         """Register a tool function that can be called from the sandbox."""
         self._toolname_func[func.__name__] = func
 
-    @staticmethod
-    def _build_schema(func: callable) -> dict:
-        sig = inspect.signature(func)
-        return {
-            "type": "function",
-            "function": {
-                "name": func.__name__,
-                "description": inspect.getdoc(func) or "",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        p.name: {"type": "string"}
-                        for p in sig.parameters.values()
-                    },
-                    "required": [
-                        p.name for p in sig.parameters.values()
-                        if p.default is inspect.Parameter.empty
-                    ],
-                },
-            },
-        }
-
     def start(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(("0.0.0.0", 0))

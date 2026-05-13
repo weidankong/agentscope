@@ -8,6 +8,7 @@ from agentscope.tool import ToolResponse
 from agentscope.message import TextBlock
 from agentscope_runtime.sandbox import BaseSandboxAsync
 from tool_server import ToolServer
+from instructions import build_run_python_code_description, _build_registered_tools_str
 
 
 def _generate_call_tool_code(host_tool_url: str) -> str:
@@ -122,28 +123,6 @@ class CodeActEnv:
     # Introspection helpers
     # ------------------------------------------------------------------
 
-    def _build_registered_tools_str(self) -> str:
-        lines = []
-        for name, func in self._callable_tools.items():
-            sig = inspect.signature(func)
-            params_str = ", ".join(
-                f"{p}: {a.annotation.__name__}"
-                if a.annotation is not inspect.Parameter.empty
-                else p
-                for p, a in sig.parameters.items()
-            )
-            doc_first_line = (inspect.getdoc(func) or "").split("\n")[0]
-            entry = f"  - {name}({params_str}): {doc_first_line}"
-
-            output_model = self._output_models.get(name)
-            if output_model is not None:
-                schema = output_model.model_json_schema()
-                # Strip title and $defs for a concise inline representation
-                schema.pop("title", None)
-                defs = schema.pop("$defs", None)
-                entry += f"\n    Output schema: {schema}"
-            lines.append(entry)
-        return "\n".join(lines)
 
 
     async def run_python_code(self, code: str) -> ToolResponse:
@@ -173,21 +152,5 @@ class CodeActEnv:
             )
 
     @property
-    def description(self):
-        registered_tools = self._build_registered_tools_str()
-        return (
-            f"Execute Python code in the sandbox and return the output.\n\n"
-            f"Inside the sandbox, `call_tool(name, **kwargs)` is available as a\n"
-            f"built-in for registered host callbacks. Use the tool name as the first\n"
-            f"argument and keyword arguments only — do not pass a dict or any other\n"
-            f"positional arguments after the tool name.\n\n"
-            f"Prefer `run_python_code` when you need to combine one or more\n"
-            f"`call_tool(...)` calls with Python control flow, loops, or\n"
-            f"post-processing.\n\n"
-            f"Registered sandbox tools:\n"
-            f"{registered_tools}\n\n"
-            f"Args:\n"
-            f"    code (`str`): The Python code to be executed.\n\n"
-            f"Returns:\n"
-            f"    `ToolResponse`: The response containing the execution output.\n"
-        )
+    def run_python_code_description(self):
+        return build_run_python_code_description(self._callable_tools, self._output_models)
